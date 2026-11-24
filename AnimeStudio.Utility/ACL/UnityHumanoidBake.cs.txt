@@ -1,0 +1,101 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEditor;
+
+// Embedded by AnimeStudio and run only in its isolated cache project.
+public static class AnimeStudioHumanoidBake
+{
+    [Serializable] public class Bone { public string name, parent; public Vector3 position, scale; public Quaternion rotation; }
+    [Serializable] public class Limit { public bool useDefaultValues; public Vector3 min, max, center; public float axisLength; }
+    [Serializable] public class Human { public string boneName, humanName; public Limit limit; }
+    [Serializable] public class Channel { public int attribute; public string property; public float[] values; }
+    [Serializable] public class Clip { public string name; public float[] times; public Channel[] channels; }
+    [Serializable] public class Input {
+        public Bone[] skeleton; public Human[] human; public string[] outputBones;
+        public float upperArmTwist, lowerArmTwist, upperLegTwist, lowerLegTwist, armStretch, legStretch, feetSpacing, humanScale;
+        public Clip[] clips;
+    }
+    [Serializable] public class Result { public string name; public string[] bones; public float humanScale; public float[] times, values; }
+    [Serializable] public class Output { public Result[] clips; }
+
+    public static void Run()
+    {
+        var input = JsonUtility.FromJson<Input>(File.ReadAllText(Environment.GetEnvironmentVariable("ANIMESTUDIO_BAKE_INPUT")));
+        var nodes = new Dictionary<string, Transform>();
+        GameObject rootObject = null;
+        Avatar avatar = null;
+        try
+        {
+            foreach (var b in input.skeleton) nodes.Add(b.name, new GameObject(b.name).transform);
+            foreach (var b in input.skeleton)
+            {
+                var t = nodes[b.name];
+                if (!string.IsNullOrEmpty(b.parent)) t.SetParent(nodes[b.parent], false);
+                t.localPosition = b.position; t.localRotation = b.rotation; t.localScale = b.scale;
+            }
+            var roots = nodes.Values.Where(t => t.parent == null).ToArray();
+            if (roots.Length != 1) throw new Exception("Avatar must have one root.");
+            var root = roots[0]; rootObject = root.gameObject;
+            var description = new HumanDescription {
+                human = input.human.Select(h => new HumanBone { boneName=h.boneName, humanName=h.humanName,
+                    limit=new HumanLimit {useDefaultValues=h.limit.useDefaultValues,min=h.limit.min,max=h.limit.max,center=h.limit.center,axisLength=h.limit.axisLength} }).ToArray(),
+                skeleton = input.skeleton.Select(b => new SkeletonBone { name=b.name, position=b.position, rotation=b.rotation, scale=b.scale }).ToArray(),
+                upperArmTwist=input.upperArmTwist, lowerArmTwist=input.lowerArmTwist,
+                upperLegTwist=input.upperLegTwist, lowerLegTwist=input.lowerLegTwist,
+                armStretch=input.armStretch, legStretch=input.legStretch, feetSpacing=input.feetSpacing, hasTranslationDoF=false
+            };
+            avatar = AvatarBuilder.BuildHumanAvatar(rootObject, description);
+            if (!avatar.isValid || !avatar.isHuman) throw new Exception("Original HumanDescription did not build a valid Humanoid Avatar.");
+            var animator = rootObject.AddComponent<Animator>(); animator.avatar = avatar;
+            if (Mathf.Abs(animator.humanScale - input.humanScale) > Mathf.Max(0.0001f, input.humanScale * 0.001f))
+                throw new Exception("Rebuilt Avatar humanScale differs from the source Avatar.");
+            var results = new List<Result>();
+            using (var handler = new HumanPoseHandler(avatar, root))
+            {
+                foreach (var clip in input.clips)
+                {
+                    var channels = clip.channels.ToDictionary(c => c.attribute);
+                    for (int k=0; k<HumanTrait.MuscleCount; k++)
+                    {
+                        // The first 55 muscle names are direct Animator property names.
+                        // Finger properties use Unity's LeftHand.Thumb.1 Stretched spelling.
+                        if (k < 55 && channels.ContainsKey(42+k) && channels[42+k].property != HumanTrait.MuscleName[k])
+                            throw new Exception("Humanoid muscle layout mismatch: " + channels[42+k].property);
+                    }
+                    var values = new float[clip.times.Length * input.outputBones.Length * 10];
+                    var pose = new HumanPose { muscles = new float[HumanTrait.MuscleCount] };
+                    for (int f=0; f<clip.times.Length; f++)
+                    {
+                        Func<int,float,float> sample = (attribute, fallback) => channels.ContainsKey(attribute) ? channels[attribute].values[f] : fallback;
+                        pose.bodyPosition = new Vector3(sample(7,0),sample(8,0),sample(9,0));
+                        pose.bodyRotation = new Quaternion(sample(10,0),sample(11,0),sample(12,0),sample(13,1));
+                        if (Mathf.Abs(Quaternion.Dot(pose.bodyRotation,pose.bodyRotation)-1) > 0.005f)
+                            throw new Exception("Invalid body quaternion.");
+                        for (int k=0; k<pose.muscles.Length; k++) pose.muscles[k]=sample(42+k,0);
+                        handler.SetHumanPose(ref pose);
+                        for (int k=0; k<input.outputBones.Length; k++)
+                        {
+                            var t=nodes[input.outputBones[k]];
+                            var p=t.localPosition; var q=t.localRotation; var s=t.localScale;
+                            var packed=new[] {p.x,p.y,p.z,q.x,q.y,q.z,q.w,s.x,s.y,s.z};
+                            if (packed.Any(x=>float.IsNaN(x)||float.IsInfinity(x))) throw new Exception("Non-finite Humanoid pose.");
+                            Array.Copy(packed,0,values,(f*input.outputBones.Length+k)*10,10);
+                        }
+                    }
+                    results.Add(new Result { name=clip.name,bones=input.outputBones,humanScale=animator.humanScale,times=clip.times,values=values });
+                    Debug.Log("ANIMESTUDIO_BAKED " + clip.name + " samples=" + clip.times.Length + " bones=" + input.outputBones.Length);
+                }
+            }
+            File.WriteAllText(Environment.GetEnvironmentVariable("ANIMESTUDIO_BAKE_OUTPUT"),JsonUtility.ToJson(new Output { clips=results.ToArray() }));
+            Debug.Log("ANIMESTUDIO_HUMANOID_SUCCESS");
+        }
+        finally
+        {
+            if(rootObject!=null) UnityEngine.Object.DestroyImmediate(rootObject);
+            if(avatar!=null) UnityEngine.Object.DestroyImmediate(avatar);
+        }
+    }
+}

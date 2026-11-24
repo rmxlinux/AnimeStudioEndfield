@@ -124,6 +124,17 @@ namespace AnimeStudio.CLI
                 assetsManager.SpecifyUnityVersion = o.UnityVersion;
                 o.Output.Create();
 
+                var nameFilters = new List<System.Text.RegularExpressions.Regex>();
+                if (o.NameFilter != null) nameFilters.AddRange(o.NameFilter);
+                if (o.Filter != null)
+                {
+                    foreach (var filter in o.Filter)
+                    {
+                        nameFilters.Add(new System.Text.RegularExpressions.Regex(System.Text.RegularExpressions.Regex.Escape(filter), System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+                    }
+                }
+                o.NameFilter = nameFilters.ToArray();
+
                 if (o.Key != default)
                 {
                     MiHoYoBinData.Encrypted = true;
@@ -143,6 +154,28 @@ namespace AnimeStudio.CLI
                 Logger.Info("Scanning for files...");
                 var files = o.Input.Attributes.HasFlag(FileAttributes.Directory) ? Directory.GetFiles(o.Input.FullName, "*.*", SearchOption.AllDirectories).OrderBy(x => x.Length).ToArray() : new string[] { o.Input.FullName };
                 Logger.Info($"Found {files.Length} files");
+
+                if (!string.IsNullOrWhiteSpace(o.FbxModel))
+                {
+                    if (o.MapOp != MapOpType.None) throw new ArgumentException("--fbx-model cannot be combined with --map_op.");
+                    foreach (var type in new[] { ClassIDType.GameObject, ClassIDType.Transform, ClassIDType.Animator,
+                        ClassIDType.Avatar, ClassIDType.Mesh, ClassIDType.SkinnedMeshRenderer, ClassIDType.MeshRenderer,
+                        ClassIDType.MeshFilter, ClassIDType.AnimationClip }) TypeFlags.SetType(type, true, false);
+                    assetsManager.LoadFiles(files);
+                    var objects = assetsManager.assetsFileList.SelectMany(f => f.Objects).ToArray();
+                    var models = objects.OfType<GameObject>().Where(g => g.m_Name == o.FbxModel).ToArray();
+                    if (models.Length != 1) throw new InvalidDataException($"Expected one model named {o.FbxModel}, found {models.Length}.");
+                    var clips = objects.OfType<AnimationClip>().Where(c => o.NameFilter.Length == 0 || o.NameFilter.Any(r => r.IsMatch(c.m_Name)))
+                        .OrderBy(c => c.m_Name).Select(c => new AssetItem(c)).ToList();
+                    if (clips.Count == 0) throw new InvalidDataException("No matching AnimationClips were loaded. Include the animation bundles in the input directory.");
+                    var target = Path.Combine(o.Output.FullName, Exporter.FixFileName(o.FbxModel) + ".fbx");
+                    if (File.Exists(target)) throw new IOException("Output FBX already exists: " + target);
+                    Logger.Info($"Exporting {o.FbxModel} with {clips.Count} selected animation(s).");
+                    if (!Exporter.ExportGameObject(models[0], o.Output.FullName + Path.DirectorySeparatorChar, clips, true))
+                        throw new InvalidDataException("The model could not be exported.");
+                    Logger.Info("Humanoid FBX export complete: " + target);
+                    return;
+                }
 
                 if (o.MapOp.HasFlag(MapOpType.CABMap))
                 {
@@ -202,6 +235,7 @@ namespace AnimeStudio.CLI
             catch (Exception e)
             {
                 Console.WriteLine(e);
+                Environment.ExitCode = 1;
             }
         }
     }

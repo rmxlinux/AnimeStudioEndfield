@@ -1,8 +1,10 @@
 ﻿using System;
+using System.IO;
 using System.Linq;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using SevenZip;
+using ACLLibs;
 
 namespace AnimeStudio
 {
@@ -18,6 +20,7 @@ namespace AnimeStudio
         private readonly Game game;
         private readonly AnimationClip animationClip;
         private readonly CustomCurveResolver m_customCurveResolver;
+        private bool m_useEndfieldHumanoidLayout;
 
         private readonly Dictionary<Vector3Curve, List<Keyframe<Vector3>>> m_translations = new Dictionary<Vector3Curve, List<Keyframe<Vector3>>>();
         private readonly Dictionary<QuaternionCurve, List<Keyframe<Quaternion>>> m_rotations = new Dictionary<QuaternionCurve, List<Keyframe<Quaternion>>>();
@@ -52,8 +55,31 @@ namespace AnimeStudio
             var bindings = animationClip.m_ClipBindingConstant;
             var tos = animationClip.FindTOS();
 
+            if (EndfieldClipDecoder.IsCompressed(animationClip))
+            {
+                m_useEndfieldHumanoidLayout = true;
+                var slopes = new float[4];
+                foreach (var track in EndfieldClipDecoder.Decode(animationClip))
+                {
+                    var binding = track.Binding;
+                    var path = GetCurvePath(tos, binding.path);
+                    for (int f = 0; f < track.Times.Length; f++)
+                    {
+                        if (track.Constant && f != 0 && f != track.Times.Length - 1) continue;
+                        if (binding.typeID == ClassIDType.Transform)
+                            AddTransformCurve(track.Times[f], binding.attribute, track.Values, slopes, slopes, f * track.Width, path);
+                        else if (binding.customType == 0)
+                            AddDefaultCurve(binding, path, track.Times[f], track.Values[f]);
+                        else
+                            AddCustomCurve(bindings, binding, path, track.Times[f], track.Values[f]);
+                    }
+                }
+                animationClip.m_Compressed = false;
+                CreateCurves();
+                return;
+            }
             var streamedFrames = m_Clip.m_StreamedClip.ReadData();
-            var lastDenseFrame = m_Clip.m_DenseClip.m_FrameCount / m_Clip.m_DenseClip.m_SampleRate;
+            var lastDenseFrame = m_Clip.m_DenseClip.m_SampleRate > 0 ? m_Clip.m_DenseClip.m_FrameCount / m_Clip.m_DenseClip.m_SampleRate : 0;
             var lastSampleFrame = streamedFrames.Count > 1 ? streamedFrames[streamedFrames.Count - 2].time : 0.0f;
             var lastFrame = Math.Max(lastDenseFrame, lastSampleFrame);
 
@@ -461,7 +487,12 @@ namespace AnimeStudio
 
         private void AddAnimatorMuscleCurve(GenericBinding binding, float time, float value)
         {
-            FloatCurve curve = new FloatCurve(string.Empty, binding.GetHumanoidMuscle().ToAttributeString(), ClassIDType.Animator, new PPtr<MonoScript>(0, 0, null));
+            var property = m_useEndfieldHumanoidLayout
+                ? EndfieldHumanoidLayout.ToProperty((int)binding.attribute, binding.version)
+                : binding.GetHumanoidMuscle().ToAttributeString();
+            // Preserve all six game-specific foot/toe axes under their actual
+            // property names. They are not standard Unity TDoF channels.
+            FloatCurve curve = new FloatCurve(string.Empty, property, ClassIDType.Animator, new PPtr<MonoScript>(0, 0, null));
             AddFloatKeyframe(curve, time, value);
         }
 

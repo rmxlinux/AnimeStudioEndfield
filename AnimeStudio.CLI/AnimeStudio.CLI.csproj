@@ -26,6 +26,17 @@
 		</ContentWithTargetPath>
 	</ItemGroup>
 
+	<ItemGroup>
+		<ContentWithTargetPath Include="..\AnimeStudio.Libraries\x64\endfieldacl.dll">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<TargetPath>x64\endfieldacl.dll</TargetPath>
+		</ContentWithTargetPath>
+		<ContentWithTargetPath Include="..\native\EndfieldACL\ACL-LICENSE.txt">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<TargetPath>ACL-LICENSE.txt</TargetPath>
+		</ContentWithTargetPath>
+	</ItemGroup>
+
   <ItemGroup>
     <Compile Update="Settings.cs">
       <DesignTimeSharedInput>True</DesignTimeSharedInput>

@@ -14,7 +14,8 @@ namespace AnimeStudio.CLI
         {
             var rootCommand = RegisterOptions();
             var parseResult = CommandLineParser.Parse(rootCommand, args, new ParserConfiguration());
-            parseResult.Invoke(new InvocationConfiguration());
+            var exitCode = parseResult.Invoke(new InvocationConfiguration());
+            if (exitCode != 0) Environment.ExitCode = exitCode;
         }
         public static RootCommand RegisterOptions()
         {
@@ -25,8 +26,10 @@ namespace AnimeStudio.CLI
             rootCommand.Options.Add(optionsBinder.LoggerFlags);
             rootCommand.Options.Add(optionsBinder.TypeFilter);
             rootCommand.Options.Add(optionsBinder.NameFilter);
+            rootCommand.Options.Add(optionsBinder.Filter);
             rootCommand.Options.Add(optionsBinder.ContainerFilter);
             rootCommand.Options.Add(optionsBinder.GameName);
+            rootCommand.Options.Add(optionsBinder.FbxModel);
             rootCommand.Options.Add(optionsBinder.MapOp);
             rootCommand.Options.Add(optionsBinder.MapType);
             rootCommand.Options.Add(optionsBinder.MapName);
@@ -50,8 +53,10 @@ namespace AnimeStudio.CLI
         public LoggerEvent[] LoggerFlags { get; set; }
         public string[] TypeFilter { get; set; }
         public Regex[] NameFilter { get; set; }
+        public string[] Filter { get; set; }
         public Regex[] ContainerFilter { get; set; }
         public string GameName { get; set; }
+        public string FbxModel { get; set; }
         public MapOpType MapOp { get; set; }
         public ExportListType MapType { get; set; }
         public string MapName { get; set; }
@@ -71,8 +76,10 @@ namespace AnimeStudio.CLI
         public readonly Option<LoggerEvent[]> LoggerFlags;
         public readonly Option<string[]> TypeFilter;
         public readonly Option<Regex[]> NameFilter;
+        public readonly Option<string[]> Filter;
         public readonly Option<Regex[]> ContainerFilter;
         public readonly Option<string> GameName;
+        public readonly Option<string> FbxModel;
         public readonly Option<MapOpType> MapOp;
         public readonly Option<ExportListType> MapType;
         public readonly Option<string> MapName;
@@ -109,6 +116,11 @@ namespace AnimeStudio.CLI
                 AllowMultipleArgumentsPerToken = true,
                 CustomParser = ParseRegexFilter
             };
+            Filter = new Option<string[]>("--filter")
+            {
+                Description = "Specify name filter(s) (contains).",
+                AllowMultipleArgumentsPerToken = true
+            };
             ContainerFilter = new Option<Regex[]>("--containers")
             {
                 Description = "Specify container regex filter(s).",
@@ -119,6 +131,10 @@ namespace AnimeStudio.CLI
             {
                 Description = "Specify Game.",
                 Required = true
+            };
+            FbxModel = new Option<string>("--fbx-model")
+            {
+                Description = "Load input bundles together and export this exact model name with loaded clips selected by --filter/--names. Requires the model, Avatar and animation bundles."
             };
             MapOp = new Option<MapOpType>("--map_op")
             {
@@ -313,8 +329,10 @@ namespace AnimeStudio.CLI
             LoggerFlags = parseResult.GetValue(LoggerFlags),
             TypeFilter = parseResult.GetValue(TypeFilter),
             NameFilter = parseResult.GetValue(NameFilter),
+            Filter = parseResult.GetValue(Filter),
             ContainerFilter = parseResult.GetValue(ContainerFilter),
             GameName = parseResult.GetRequiredValue(GameName),
+            FbxModel = parseResult.GetValue(FbxModel),
             MapOp = parseResult.GetValue(MapOp),
             MapType = parseResult.GetValue(MapType),
             MapName = parseResult.GetValue(MapName),

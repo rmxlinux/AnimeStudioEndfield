@@ -446,10 +446,16 @@ namespace AnimeStudio.GUI
         private static bool TryExportFile(string dir, AssetItem item, string extension, out string fullPath)
         {
             var fileName = FixFileName(item.Text);
+            if (!string.IsNullOrEmpty(item.Container))
+            {
+                var subdir = Path.GetDirectoryName(item.Container);
+                if (!string.IsNullOrEmpty(subdir))
+                    dir = Path.Combine(dir, subdir);
+            }
             fullPath = Path.Combine(dir, $"{fileName}{extension}");
             if (!File.Exists(fullPath))
             {
-                Directory.CreateDirectory(dir);
+                Directory.CreateDirectory(Path.GetDirectoryName(fullPath));
                 return true;
             }
             if (Properties.Settings.Default.allowDuplicates)
@@ -459,6 +465,7 @@ namespace AnimeStudio.GUI
                     fullPath = Path.Combine(dir, $"{fileName} ({i}){extension}");
                     if (!File.Exists(fullPath))
                     {
+                        Directory.CreateDirectory(Path.GetDirectoryName(fullPath));
                         return true;
                     }
                 }
@@ -468,6 +475,12 @@ namespace AnimeStudio.GUI
         private static bool TryExportFolder(string dir, AssetItem item, out string fullPath)
         {
             var fileName = FixFileName(item.Text);
+            if (!string.IsNullOrEmpty(item.Container))
+            {
+                var subdir = Path.GetDirectoryName(item.Container);
+                if (!string.IsNullOrEmpty(subdir))
+                    dir = Path.Combine(dir, subdir);
+            }
             fullPath = Path.Combine(dir, fileName);
             if (!Directory.Exists(fullPath))
             {

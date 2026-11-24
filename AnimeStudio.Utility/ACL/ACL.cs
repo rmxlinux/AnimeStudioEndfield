@@ -33,10 +33,35 @@ namespace ACLLibs
             Dispose(ref decompressedClip);
         }
 
+        public static void DecompressAllAligned(byte[] data, out float[] values, out float[] times)
+        {
+            var decompressedClip = new DecompressedClip();
+            var allocation = Marshal.AllocHGlobal(data.Length + 15);
+            try
+            {
+                var aligned = new IntPtr(((long)allocation + 15L) & ~15L);
+                Marshal.Copy(data, 0, aligned, data.Length);
+                DecompressAllPointer(aligned, ref decompressedClip);
+
+                values = new float[decompressedClip.ValuesCount];
+                Marshal.Copy(decompressedClip.Values, values, 0, decompressedClip.ValuesCount);
+                times = new float[decompressedClip.TimesCount];
+                Marshal.Copy(decompressedClip.Times, times, 0, decompressedClip.TimesCount);
+                Dispose(ref decompressedClip);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(allocation);
+            }
+        }
+
         #region importfunctions
 
         [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         private static extern void DecompressClip(byte[] data, ref DecompressedClip decompressedClip);
+
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, EntryPoint = "DecompressAll")]
+        private static extern void DecompressAllPointer(IntPtr data, ref DecompressedClip decompressedClip);
 
         [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         private static extern void Dispose(ref DecompressedClip decompressedClip);

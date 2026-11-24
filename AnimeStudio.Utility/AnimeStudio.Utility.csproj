@@ -18,6 +18,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="ACL/UnityHumanoidBake.cs.txt" LogicalName="AnimeStudio.UnityHumanoidBake.cs" WithCulture="false" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\AnimeStudio.PInvoke\AnimeStudio.PInvoke.csproj" />
     <ProjectReference Include="..\AnimeStudio.FBXWrapper\AnimeStudio.FBXWrapper.csproj" />
     <ProjectReference Include="..\AnimeStudio\AnimeStudio.csproj" />

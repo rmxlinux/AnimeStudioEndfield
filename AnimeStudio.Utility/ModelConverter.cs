@@ -1,8 +1,10 @@
-﻿using Newtonsoft.Json;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
+using ACLLibs;
 
 namespace AnimeStudio
 {
@@ -17,6 +19,7 @@ namespace AnimeStudio
 
         private Options options;
         private Avatar avatar;
+        private Dictionary<AnimationClip, EndfieldHumanoidBaker.BakedClip> humanoidBakes;
         private HashSet<AnimationClip> animationClipHashSet = new HashSet<AnimationClip>();
         private Dictionary<AnimationClip, string> boundAnimationPathDic = new Dictionary<AnimationClip, string>();
         private Dictionary<uint, string> bonePathHash = new Dictionary<uint, string>();
@@ -789,6 +792,12 @@ namespace AnimeStudio
 
         private void ConvertAnimations()
         {
+            var humanClips = animationClipHashSet.Where(EndfieldHumanoidBaker.NeedsBake).ToArray();
+            if (humanClips.Length > 0)
+            {
+                ResolveEndfieldAvatar(humanClips[0]);
+                humanoidBakes = EndfieldHumanoidBaker.Bake(avatar, humanClips);
+            }
             foreach (var animationClip in animationClipHashSet)
             {
                 var iAnim = new ImportedKeyframedAnimation();
@@ -809,6 +818,8 @@ namespace AnimeStudio
                 iAnim.SampleRate = animationClip.m_SampleRate;
                 iAnim.TrackList = new List<ImportedAnimationKeyframedTrack>();
                 AnimationList.Add(iAnim);
+                try
+                {
                 if (animationClip.m_Legacy)
                 {
                     foreach (var m_CompressedRotationCurve in animationClip.m_CompressedRotationCurves)
@@ -903,6 +914,11 @@ namespace AnimeStudio
                     var m_Clip = animationClip.m_MuscleClip.m_Clip;
                     var streamedFrames = m_Clip.m_StreamedClip.ReadData();
                     var m_ClipBindingConstant = animationClip.m_ClipBindingConstant ?? m_Clip.ConvertValueArrayToGenericBinding();
+                    if (EndfieldClipDecoder.IsCompressed(animationClip))
+                    {
+                        ConvertEndfieldAclAnimation(iAnim, animationClip, m_ClipBindingConstant);
+                        continue;
+                    }
                     var m_ACLClip = m_Clip.m_ACLClip;
                     var aclCount = m_ACLClip.CurveCount;
                     if (m_ACLClip.IsSet && !options.game.Type.IsSRGroup())
@@ -977,7 +993,80 @@ namespace AnimeStudio
                         }
                     }
                 }
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException && ex is not EndfieldHumanoidException)
+                {
+                    AnimationList.Remove(iAnim);
+                    Logger.Error($"Skipping animation clip {animationClip.m_Name}: {ex}");
+                }
             }
+        }
+
+        private void ResolveEndfieldAvatar(AnimationClip clip)
+        {
+            if (avatar != null) return;
+            // Merged GameObject export does not pass through InitWithAnimator.
+            // Resolve only an unambiguous loaded Avatar; never guess from clip names.
+            var candidates = clip.assetsFile.assetsManager.assetsFileList.SelectMany(f => f.Objects)
+                .OfType<Avatar>().Where(a => a.m_HumanDescription?.m_Human?.Count > 0 &&
+                    a.m_HumanDescription.m_Human.All(h => RootFrame.FindChilds(h.m_BoneName).Count() == 1)).ToArray();
+            if (candidates.Length == 1) avatar = candidates[0];
+            else throw new EndfieldHumanoidException($"{clip.m_Name}: expected one matching original Avatar, found {candidates.Length}. Load the character's Avatar/model bundle and export one character at a time.");
+        }
+
+        private void ConvertEndfieldAclAnimation(ImportedKeyframedAnimation animation, AnimationClip clip, AnimationClipBindingConstant bindingTable)
+        {
+            var bindings = bindingTable.genericBindings;
+            var starts = new int[bindings.Count];
+            int next = 0;
+            for (int i = 0; i < bindings.Count; i++)
+            {
+                starts[i] = next;
+                next += bindings[i].typeID == ClassIDType.Transform ? bindings[i].attribute == 2 ? 4 : 3 : 1;
+            }
+            foreach (var source in EndfieldClipDecoder.Decode(clip))
+            {
+                var binding = source.Binding;
+                if (binding.typeID != ClassIDType.Transform && binding.typeID != ClassIDType.SkinnedMeshRenderer) continue;
+                for (int f = 0; f < source.Times.Length; f++)
+                {
+                    if (source.Constant && f != 0 && f != source.Times.Length - 1) continue;
+                    int curveIndex = 0;
+                    ReadCurveData(animation, bindingTable, starts[source.BindingIndex], source.Times[f], source.Values,
+                        f * source.Width, ref curveIndex);
+                }
+            }
+            if (!EndfieldHumanoidBaker.NeedsBake(clip)) return;
+            ResolveEndfieldAvatar(clip);
+            if (humanoidBakes == null || !humanoidBakes.ContainsKey(clip))
+                humanoidBakes = EndfieldHumanoidBaker.Bake(avatar, new[] { clip });
+            var baked = humanoidBakes[clip];
+            for (int b = 0; b < baked.bones.Length; b++)
+            {
+                var frames = RootFrame.FindChilds(baked.bones[b]).ToArray();
+                if (frames.Length != 1) throw new EndfieldHumanoidException($"Humanoid bone {baked.bones[b]} is missing or ambiguous in the exported hierarchy.");
+                var track = animation.FindTrack(frames[0].Path);
+                bool position = track.Translations.Count == 0, rotation = track.Rotations.Count == 0, scale = track.Scalings.Count == 0;
+                for (int f = 0; f < baked.times.Length; f++)
+                {
+                    int offset = (f * baked.bones.Length + b) * 10;
+                    var v = baked.values; var time = baked.times[f];
+                    // These are absolute Unity local TRS, not deltas from Avatar T-pose.
+                    // FBX/Blender binds them against the mesh's own rest matrices.
+                    if (position) track.Translations.Add(new ImportedKeyframe<Vector3>(time, new Vector3(-v[offset], v[offset + 1], v[offset + 2])));
+                    if (rotation) track.Rotations.Add(new ImportedKeyframe<Quaternion>(time, new Quaternion(v[offset + 3], -v[offset + 4], -v[offset + 5], v[offset + 6])));
+                    if (scale) track.Scalings.Add(new ImportedKeyframe<Vector3>(time, new Vector3(v[offset + 7], v[offset + 8], v[offset + 9])));
+                }
+                // ACL looping clips can end one sample before their declared duration.
+                var stop = clip.m_MuscleClip.m_StopTime;
+                if (stop > baked.times[baked.times.Length - 1] + 0.0001f)
+                {
+                    if (position) track.Translations.Add(new ImportedKeyframe<Vector3>(stop, track.Translations.Last().value));
+                    if (rotation) track.Rotations.Add(new ImportedKeyframe<Quaternion>(stop, track.Rotations.Last().value));
+                    if (scale) track.Scalings.Add(new ImportedKeyframe<Vector3>(stop, track.Scalings.Last().value));
+                }
+            }
+            Logger.Info($"{clip.m_Name}: recovered {baked.bones.Length} Humanoid bones; retained original Transform and BlendShape curves.");
         }
 
         private void ReadCurveData(ImportedKeyframedAnimation iAnim, AnimationClipBindingConstant m_ClipBindingConstant, int index, float time, float[] data, int offset, ref int curveIndex)

@@ -398,10 +398,16 @@ namespace AnimeStudio.CLI
         private static bool TryExportFile(string dir, AssetItem item, string extension, out string fullPath)
         {
             var fileName = FixFileName(item.Text);
+            if (!string.IsNullOrEmpty(item.Container))
+            {
+                var subdir = Path.GetDirectoryName(item.Container);
+                if (!string.IsNullOrEmpty(subdir))
+                    dir = Path.Combine(dir, subdir);
+            }
             fullPath = Path.Combine(dir, $"{fileName}{extension}");
             if (!File.Exists(fullPath))
             {
-                Directory.CreateDirectory(dir);
+                Directory.CreateDirectory(Path.GetDirectoryName(fullPath));
                 return true;
             }
             if (Properties.Settings.Default.allowDuplicates)
@@ -411,6 +417,7 @@ namespace AnimeStudio.CLI
                     fullPath = Path.Combine(dir, $"{fileName} ({i}){extension}");
                     if (!File.Exists(fullPath))
                     {
+                        Directory.CreateDirectory(Path.GetDirectoryName(fullPath));
                         return true;
                     }
                 }
@@ -421,6 +428,12 @@ namespace AnimeStudio.CLI
         private static bool TryExportFolder(string dir, AssetItem item, out string fullPath)
         {
             var fileName = FixFileName(item.Text);
+            if (!string.IsNullOrEmpty(item.Container))
+            {
+                var subdir = Path.GetDirectoryName(item.Container);
+                if (!string.IsNullOrEmpty(subdir))
+                    dir = Path.Combine(dir, subdir);
+            }
             fullPath = Path.Combine(dir, fileName);
             if (!Directory.Exists(fullPath))
             {
@@ -449,6 +462,7 @@ namespace AnimeStudio.CLI
             if (string.IsNullOrEmpty(str)) 
                 return false;
             File.WriteAllText(exportFullPath, str);
+            AnimationClipCurveDecoder.WriteJson(m_AnimationClip, Path.ChangeExtension(exportFullPath, ".curves.json"));
             return true;
         }
 
@@ -494,7 +508,7 @@ namespace AnimeStudio.CLI
             return ExportGameObject(m_GameObject, exportFullPath + Path.DirectorySeparatorChar, animationList);
         }
 
-        public static bool ExportGameObject(GameObject gameObject, string exportPath, List<AssetItem> animationList = null)
+        public static bool ExportGameObject(GameObject gameObject, string exportPath, List<AssetItem> animationList = null, bool forceAnimationExport = false)
         {
             var options = new ModelConverter.Options()
             {
@@ -526,19 +540,19 @@ namespace AnimeStudio.CLI
                 }
             }
             exportPath = exportPath + FixFileName(gameObject.m_Name) + ".fbx";
-            ExportFbx(convert, exportPath);
+            ExportFbx(convert, exportPath, forceAnimationExport);
             return true;
         }
 
-        private static void ExportFbx(IImported convert, string exportPath)
+        private static void ExportFbx(IImported convert, string exportPath, bool forceAnimationExport = false)
         {
             var exportOptions = new Fbx.ExportOptions()
             {
                 eulerFilter = Properties.Settings.Default.eulerFilter,
                 filterPrecision = (float)Properties.Settings.Default.filterPrecision,
-                exportAllNodes = Properties.Settings.Default.exportAllNodes,
-                exportSkins = Properties.Settings.Default.exportSkins,
-                exportAnimations = Properties.Settings.Default.exportAnimations,
+                exportAllNodes = forceAnimationExport || Properties.Settings.Default.exportAllNodes,
+                exportSkins = forceAnimationExport || Properties.Settings.Default.exportSkins,
+                exportAnimations = forceAnimationExport || Properties.Settings.Default.exportAnimations,
                 exportBlendShape = Properties.Settings.Default.exportBlendShape,
                 castToBone = Properties.Settings.Default.castToBone,
                 boneSize = (int)Properties.Settings.Default.boneSize,

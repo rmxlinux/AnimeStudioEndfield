@@ -41,6 +41,17 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<ContentWithTargetPath Include="..\AnimeStudio.Libraries\x64\endfieldacl.dll">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<TargetPath>x64\endfieldacl.dll</TargetPath>
+		</ContentWithTargetPath>
+		<ContentWithTargetPath Include="..\native\EndfieldACL\ACL-LICENSE.txt">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<TargetPath>ACL-LICENSE.txt</TargetPath>
+		</ContentWithTargetPath>
+	</ItemGroup>
+
+	<ItemGroup>
 		<ContentWithTargetPath Include="..\AnimeStudio.Libraries\AnimeStudio.FMOD.dll">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<TargetPath>AnimeStudio.FMOD.dll</TargetPath>
