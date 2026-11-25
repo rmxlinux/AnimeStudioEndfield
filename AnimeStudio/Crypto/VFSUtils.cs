@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Text;
@@ -164,6 +165,15 @@ namespace AnimeStudio
 
             Logger.Verbose($"Blocks Count: {blocksCount}");
 
+            // Each block entry needs ten bytes at minimum, followed by the
+            // directory count. Group fields can add bytes to the block table.
+            if (reader.Remaining < sizeof(int)
+                || blocksCount > (reader.Remaining - sizeof(int)) / 10)
+            {
+                throw new InvalidDataException(
+                    $"Invalid VFS blocks count {blocksCount} for {reader.Remaining} bytes of blocks info");
+            }
+
             List<BundleFile.StorageBlock> blocks = new();
 
             for (int i = 0; i < blocksCount; i++)
@@ -225,6 +235,19 @@ namespace AnimeStudio
                     compressedSize = compressedSize,
                 });
 
+                // Recent Endfield bundles split the block table into groups.
+                // The high bit marks the last block in a group and is followed
+                // by a four-byte group field before the next block entry.
+                if (game == GameType.ArknightsEndfield && (flags & 0x80) != 0)
+                {
+                    if (reader.Remaining < sizeof(uint))
+                    {
+                        throw new InvalidDataException("Truncated Endfield VFS block group field");
+                    }
+
+                    reader.ReadUInt32();
+                }
+
                 Logger.Verbose($"Block {i} Info: {blocks[i]}");
             }
 
@@ -263,6 +286,17 @@ namespace AnimeStudio
             }
 
             Logger.Verbose($"Nodes Count: {nodesCount}");
+
+            // A directory entry has at least 16 bytes of numeric fields, an
+            // empty path terminator, and the trailing encoded size field. Check
+            // the count before entering the loop so malformed metadata cannot
+            // turn into an effectively unbounded parse.
+            const int minimumNodeBytes = 21;
+            if (nodesCount > reader.Remaining / minimumNodeBytes)
+            {
+                throw new InvalidDataException(
+                    $"Invalid VFS nodes count {nodesCount} for {reader.Remaining} bytes of blocks info");
+            }
 
             List<BundleFile.Node> nodes = new();
 

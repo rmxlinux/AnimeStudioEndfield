@@ -134,7 +134,7 @@ namespace AnimeStudio
         {
             foreach (var blockInfo in m_BlocksInfo)
             {
-                var compressionType = (int)blockInfo.flags; // no mask
+                var compressionType = (int)(blockInfo.flags & StorageBlockFlags.CompressionTypeMask);
                 Logger.Verbose($"Block compression type {compressionType}");
 
                 switch (compressionType)
