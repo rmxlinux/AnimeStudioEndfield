@@ -3,8 +3,6 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace AnimeStudio
 {
@@ -68,8 +66,8 @@ namespace AnimeStudio
 
             //
             using var blocksStream = CreateBlocksStream(path);
-            ReadBlocks(reader, blocksStream, game);
-            ReadFiles(blocksStream, path);
+            var unavailable = ReadBlocks(reader, blocksStream, game);
+            ReadFiles(blocksStream, path, unavailable);
         }
 
         private void ReadBlocksInfoAndDirectory(FileReader reader, GameType game)
@@ -121,32 +119,55 @@ namespace AnimeStudio
         private Stream CreateBlocksStream(string path)
         {
             Stream blocksStream;
-            var uncompressedSizeSum = (int)m_BlocksInfo.Sum(x => x.uncompressedSize);
+            var uncompressedSizeSum = m_BlocksInfo.Sum(x => (long)x.uncompressedSize);
             Logger.Verbose($"Total size of decompressed blocks: 0x{uncompressedSizeSum:X8}");
             if (uncompressedSizeSum >= int.MaxValue)
                 blocksStream = new FileStream(path + ".temp", FileMode.Create, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
             else
-                blocksStream = new MemoryStream(uncompressedSizeSum);
+                blocksStream = new MemoryStream((int)uncompressedSizeSum);
             return blocksStream;
         }
 
-        private void ReadBlocks(FileReader reader, Stream blocksStream, GameType game)
+        private List<PartialVfsStream.Range> ReadBlocks(FileReader reader, Stream blocksStream, GameType game)
         {
-            foreach (var blockInfo in m_BlocksInfo)
+            var unavailable = new List<PartialVfsStream.Range>();
+            for (int i = 0; i < m_BlocksInfo.Count; i++)
             {
+                var blockInfo = m_BlocksInfo[i];
                 var compressionType = (int)(blockInfo.flags & StorageBlockFlags.CompressionTypeMask);
                 Logger.Verbose($"Block compression type {compressionType}");
+
+                if (game == GameType.ArknightsEndfield && (blockInfo.flags & StorageBlockFlags.EndfieldEncrypted) != 0)
+                {
+                    if (blockInfo.compressedSize > reader.Remaining)
+                    {
+                        throw new EndOfStreamException($"Truncated Endfield VFS block {i}.");
+                    }
+
+                    reader.Position += blockInfo.compressedSize;
+                    var start = blocksStream.Position;
+                    var end = start + blockInfo.uncompressedSize;
+                    unavailable.Add(new PartialVfsStream.Range(start, end, i));
+                    // Keep file offsets intact. PartialVfsStream guards reads into these ranges.
+                    blocksStream.SetLength(end);
+                    blocksStream.Position = end;
+                    continue;
+                }
 
                 switch (compressionType)
                 {
                     case 0:
-                        var size = (int)blockInfo.uncompressedSize;
-                        var buffer = reader.ReadBytes(size);
-                        blocksStream.Write(buffer);
+                        var size = checked((int)blockInfo.uncompressedSize);
+                        var raw = reader.ReadBytes(size);
+                        if (raw.Length != size)
+                        {
+                            throw new EndOfStreamException($"Truncated VFS block {i}.");
+                        }
+                        blocksStream.Write(raw);
                         break;
                     case 5:
-                        var compressedSize = (int)blockInfo.compressedSize;
-                        var uncompressedSize = (int)blockInfo.uncompressedSize;
+                        var compressedSize = checked((int)blockInfo.compressedSize);
+                        var uncompressedSize = checked((int)blockInfo.uncompressedSize);
 
                         var compressedBytes = ArrayPool<byte>.Shared.Rent(compressedSize);
                         var uncompressedBytes = ArrayPool<byte>.Shared.Rent(uncompressedSize);
@@ -156,7 +177,7 @@ namespace AnimeStudio
 
                         try
                         {
-                            reader.Read(compressedBytesSpan);
+                            reader.BaseStream.ReadExactly(compressedBytesSpan);
 
                             VFSUtils.DecryptBlock(compressedBytesSpan, game);
 
@@ -164,16 +185,12 @@ namespace AnimeStudio
                             var numWrite = LZ4Inv.Instance.Decompress(compressedBytesSpan, uncompressedBytesSpan);
                             if (numWrite != uncompressedSize)
                             {
-                                Logger.Warning($"Lz4 decompression error, write {numWrite} bytes but expected {uncompressedSize} bytes");
+                                throw new InvalidDataException($"VFS block {i} decompressed to {numWrite} bytes, expected {uncompressedSize}.");
                             }
-                        }
-                        catch (Exception e)
-                        {
-                            Logger.Error($"Lz4 decompression error : {e.Message}");
+                            blocksStream.Write(uncompressedBytesSpan);
                         }
                         finally
                         {
-                            blocksStream.Write(uncompressedBytesSpan);
                             ArrayPool<byte>.Shared.Return(compressedBytes, true);
                             ArrayPool<byte>.Shared.Return(uncompressedBytes, true);
                         }
@@ -183,31 +200,66 @@ namespace AnimeStudio
                         throw new Exception($"Unsupported block compression type {compressionType}");
                 }
             }
+            if (unavailable.Count != 0)
+            {
+                Logger.Warning($"{reader.FileName} has {unavailable.Count} encrypted Endfield VFS blocks with unavailable keys. Assets that use those blocks cannot be read.");
+            }
+            return unavailable;
         }
 
-        private void ReadFiles(Stream blocksStream, string path)
+        private void ReadFiles(Stream blocksStream, string path, List<PartialVfsStream.Range> unavailable)
         {
             Logger.Verbose($"Writing files from blocks stream...");
 
             fileList = new List<StreamFile>();
-            for (int i = 0; i < m_DirectoryInfo.Count; i++)
+            try
             {
-                var node = m_DirectoryInfo[i];
-                var file = new StreamFile();
-                fileList.Add(file);
-                file.path = node.path;
-                file.fileName = Path.GetFileName(node.path);
-                if (node.size >= int.MaxValue)
+                foreach (var node in m_DirectoryInfo)
                 {
-                    var extractPath = path + "_unpacked" + Path.DirectorySeparatorChar;
-                    Directory.CreateDirectory(extractPath);
-                    file.stream = new FileStream(extractPath + file.fileName, FileMode.Create, FileAccess.ReadWrite, FileShare.ReadWrite);
+                    if (node.offset < 0 || node.size < 0 || node.offset > blocksStream.Length ||
+                        node.size > blocksStream.Length - node.offset)
+                    {
+                        throw new InvalidDataException($"VFS entry {node.path} extends beyond its data.");
+                    }
+
+                    var end = node.offset + node.size;
+                    var missing = unavailable.Where(range => range.Start < end && range.End > node.offset)
+                        .Select(range => new PartialVfsStream.Range(Math.Max(0, range.Start - node.offset),
+                            Math.Min(node.size, range.End - node.offset), range.BlockIndex)).ToArray();
+                    var file = new StreamFile { path = node.path, fileName = Path.GetFileName(node.path) };
+                    fileList.Add(file);
+                    if (node.size < int.MaxValue)
+                    {
+                        file.stream = new MemoryStream((int)node.size);
+                    }
+                    else if (missing.Length != 0)
+                    {
+                        var tempPath = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+                        file.stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.ReadWrite,
+                            FileShare.None, 4096, FileOptions.DeleteOnClose);
+                    }
+                    else
+                    {
+                        var extractPath = path + "_unpacked" + Path.DirectorySeparatorChar;
+                        Directory.CreateDirectory(extractPath);
+                        file.stream = new FileStream(extractPath + file.fileName, FileMode.Create, FileAccess.ReadWrite, FileShare.ReadWrite);
+                    }
+                    blocksStream.Position = node.offset;
+                    blocksStream.CopyTo(file.stream, node.size);
+                    file.stream.Position = 0;
+                    if (missing.Length != 0)
+                    {
+                        file.stream = new PartialVfsStream(file.stream, missing);
+                    }
                 }
-                else
-                    file.stream = new MemoryStream((int)node.size);
-                blocksStream.Position = node.offset;
-                blocksStream.CopyTo(file.stream, node.size);
-                file.stream.Position = 0;
+            }
+            catch
+            {
+                foreach (var file in fileList)
+                {
+                    file.stream?.Dispose();
+                }
+                throw;
             }
         }
     }

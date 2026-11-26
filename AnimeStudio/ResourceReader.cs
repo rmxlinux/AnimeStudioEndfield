@@ -81,6 +81,10 @@ namespace AnimeStudio
         public void WriteData(string path)
         {
             var binaryReader = GetReader();
+            if (binaryReader.BaseStream is PartialVfsStream partial)
+            {
+                partial.RequireAvailable(offset, size);
+            }
             binaryReader.BaseStream.Position = offset;
             using (var writer = File.OpenWrite(path))
             {

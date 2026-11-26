@@ -868,6 +868,11 @@ namespace AnimeStudio
                     var objectReader = new ObjectReader(assetsFile.reader, assetsFile, objectInfo, Game);
                     try
                     {
+                        if (objectReader.BaseStream is PartialVfsStream partial)
+                        {
+                            partial.RequireAvailable(objectReader.byteStart, objectReader.byteSize);
+                        }
+
                         Object obj = objectReader.type switch
                         {
                             ClassIDType.Animation when ClassIDType.Animation.CanParse() => new Animation(objectReader),

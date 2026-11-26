@@ -27,6 +27,7 @@ namespace AnimeStudio
     {
         CompressionTypeMask = 0x3f,
         Streamed = 0x40,
+        EndfieldEncrypted = 0x80,
     }
 
     public enum CompressionType

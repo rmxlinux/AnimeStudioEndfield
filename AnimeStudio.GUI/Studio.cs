@@ -248,6 +248,13 @@ namespace AnimeStudio.GUI
             }
             foreach (var file in fileList)
             {
+                if (file.HasUnavailableData)
+                {
+                    Logger.Warning($"Skipping extraction of {file.path} because it contains encrypted Endfield VFS blocks with unavailable keys.");
+                    file.stream.Dispose();
+                    continue;
+                }
+
                 var filePath = Path.Combine(extractPath, file.path);
                 var fileDirectory = Path.GetDirectoryName(filePath);
                 if (!Directory.Exists(fileDirectory))

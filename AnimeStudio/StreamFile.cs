@@ -7,5 +7,6 @@ namespace AnimeStudio
         public string path;
         public string fileName;
         public Stream stream;
+        public bool HasUnavailableData => stream is PartialVfsStream;
     }
 }

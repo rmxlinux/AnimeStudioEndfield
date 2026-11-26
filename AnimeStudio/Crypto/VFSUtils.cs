@@ -235,14 +235,12 @@ namespace AnimeStudio
                     compressedSize = compressedSize,
                 });
 
-                // Recent Endfield bundles split the block table into groups.
-                // The high bit marks the last block in a group and is followed
-                // by a four-byte group field before the next block entry.
-                if (game == GameType.ArknightsEndfield && (flags & 0x80) != 0)
+                // Encrypted Endfield blocks include a four-byte encoded key ID.
+                if (game == GameType.ArknightsEndfield && ((StorageBlockFlags)flags & StorageBlockFlags.EndfieldEncrypted) != 0)
                 {
                     if (reader.Remaining < sizeof(uint))
                     {
-                        throw new InvalidDataException("Truncated Endfield VFS block group field");
+                        throw new InvalidDataException("Truncated Endfield VFS block key ID");
                     }
 
                     reader.ReadUInt32();
