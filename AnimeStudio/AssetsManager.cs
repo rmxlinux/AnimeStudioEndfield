@@ -431,6 +431,11 @@ namespace AnimeStudio
                     assetsFileIndexCache.Add(assetsFile.fileName, assetsFileList.Count - 1);
                     assetsFileListHash.Add(assetsFile.fileName);
                 }
+                catch (UnavailableVfsDataException ex)
+                {
+                    Logger.ErrorSilently($"Skipping assets file {reader.FileName} because VFS block {ex.BlockIndex} contains unavailable metadata.");
+                    reader.Dispose();
+                }
                 catch (Exception e)
                 {
                     Logger.Error($"Error while reading assets file {reader.FullPath} from {Path.GetFileName(originalPath)}", e);
@@ -731,21 +736,29 @@ namespace AnimeStudio
                 Logger.Verbose($"file total size: {file.m_Header.size:X8}");
                 foreach (var innerFile in file.fileList)
                 {
-                    var dummyPath = Path.Combine(Path.GetDirectoryName(reader.FullPath), innerFile.fileName);
-                    var cabReader = new FileReader(dummyPath, innerFile.stream);
-                    if (cabReader.FileType == FileType.AssetsFile)
+                    try
                     {
-                        LoadAssetsFromMemory(cabReader, originalPath ?? reader.FullPath, file.m_Header.unityRevision, originalOffset);
-                    }
-                    else
-                    {
-                        Logger.Verbose("Caching resource stream");
-                        // Dispose immediately on name collision — TryAdd would otherwise drop the
-                        // new stream with no owner while the previous one stays cached.
-                        if (!resourceFileReaders.TryAdd(innerFile.fileName, cabReader))
+                        var dummyPath = Path.Combine(Path.GetDirectoryName(reader.FullPath), innerFile.fileName);
+                        var cabReader = new FileReader(dummyPath, innerFile.stream);
+                        if (cabReader.FileType == FileType.AssetsFile)
                         {
-                            cabReader.Dispose();
+                            LoadAssetsFromMemory(cabReader, originalPath ?? reader.FullPath, file.m_Header.unityRevision, originalOffset);
                         }
+                        else
+                        {
+                            Logger.Verbose("Caching resource stream");
+                            // Dispose immediately on name collision — TryAdd would otherwise drop the
+                            // new stream with no owner while the previous one stays cached.
+                            if (!resourceFileReaders.TryAdd(innerFile.fileName, cabReader))
+                            {
+                                cabReader.Dispose();
+                            }
+                        }
+                    }
+                    catch (UnavailableVfsDataException ex)
+                    {
+                        Logger.ErrorSilently($"Skipping VFS entry {innerFile.path} because block {ex.BlockIndex} is unavailable.");
+                        innerFile.stream?.Dispose();
                     }
                 }
             }
@@ -772,6 +785,10 @@ namespace AnimeStudio
                         break;
                 }
                 Logger.Error($"Game type mismatch, Expected {name} but got {Game.Name} ({Game.GetType().Name}) !!");
+            }
+            catch (UnavailableVfsDataException ex)
+            {
+                Logger.ErrorSilently($"Skipping {reader.FileName} because VFS block {ex.BlockIndex} contains unavailable metadata.");
             }
             catch (Exception e)
             {
@@ -909,6 +926,10 @@ namespace AnimeStudio
                             _ => new Object(objectReader),
                         };
                         assetsFile.AddObject(obj);
+                    }
+                    catch (UnavailableVfsDataException e)
+                    {
+                        Logger.ErrorSilently($"Skipping {objectReader.type} PathID {objectInfo.m_PathID} in {assetsFile.fileName} because VFS block {e.BlockIndex} contains unavailable data.");
                     }
                     catch (Exception e)
                     {

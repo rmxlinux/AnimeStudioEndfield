@@ -21,11 +21,13 @@ namespace AnimeStudio
     public interface ILogger
     {
         void Log(LoggerEvent loggerEvent, string message);
+        void LogSilently(LoggerEvent loggerEvent, string message);
     }
 
     public sealed class DummyLogger : ILogger
     {
         public void Log(LoggerEvent loggerEvent, string message) { }
+        public void LogSilently(LoggerEvent loggerEvent, string message) { }
     }
 
     public sealed class ConsoleLogger : ILogger
@@ -34,6 +36,8 @@ namespace AnimeStudio
         {
             Console.WriteLine("[{0}] {1}", loggerEvent, message);
         }
+
+        public void LogSilently(LoggerEvent loggerEvent, string message) => Log(loggerEvent, message);
     }
 
     public sealed class FileLogger : ILogger
@@ -64,6 +68,8 @@ namespace AnimeStudio
                 Writer.WriteLine($"[{DateTime.Now}][{loggerEvent}] {message}");
             }
         }
+
+        public void LogSilently(LoggerEvent loggerEvent, string message) => Log(loggerEvent, message);
 
         public void Dispose()
         {

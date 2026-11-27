@@ -4,6 +4,12 @@ using System.IO;
 
 namespace AnimeStudio
 {
+    internal sealed class UnavailableVfsDataException(int blockIndex)
+        : IOException($"Endfield VFS block {blockIndex} is unavailable because it could not be decrypted.")
+    {
+        public int BlockIndex { get; } = blockIndex;
+    }
+
     internal sealed class PartialVfsStream(Stream stream, IReadOnlyList<PartialVfsStream.Range> unavailable) : Stream
     {
         internal readonly record struct Range(long Start, long End, int BlockIndex);
@@ -35,7 +41,7 @@ namespace AnimeStudio
                 }
                 if (range.End > offset)
                 {
-                    throw new IOException($"Endfield VFS block {range.BlockIndex} is encrypted and its key is unavailable.");
+                    throw new UnavailableVfsDataException(range.BlockIndex);
                 }
             }
         }

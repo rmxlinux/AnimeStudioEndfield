@@ -81,6 +81,7 @@ namespace AnimeStudio
             public uint compressedSize;
             public uint uncompressedSize;
             public StorageBlockFlags flags;
+            public uint? keyId;
 
             public override string ToString()
             {
@@ -88,6 +89,10 @@ namespace AnimeStudio
                 sb.Append($"compressedSize: 0x{compressedSize:X8} | ");
                 sb.Append($"uncompressedSize: 0x{uncompressedSize:X8} | ");
                 sb.Append($"flags: 0x{(int)flags:X8}");
+                if (keyId.HasValue)
+                {
+                    sb.Append($" | keyId: 0x{keyId.Value:X8}");
+                }
                 return sb.ToString();
             }
         }

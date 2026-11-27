@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
@@ -19,6 +19,11 @@ namespace AnimeStudio
         {
             Offset = reader.Position;
             reader.Endian = EndianType.BigEndian;
+
+            if (game == GameType.ArknightsEndfield)
+            {
+                EndfieldResourceKeyClient.RefreshIfDue();
+            }
 
 
             if (!VFSUtils.IsValidHeader(reader, game))
@@ -139,18 +144,34 @@ namespace AnimeStudio
 
                 if (game == GameType.ArknightsEndfield && (blockInfo.flags & StorageBlockFlags.EndfieldEncrypted) != 0)
                 {
+                    var start = blocksStream.Position;
+                    var end = checked(start + blockInfo.uncompressedSize);
+
                     if (blockInfo.compressedSize > reader.Remaining)
                     {
                         throw new EndOfStreamException($"Truncated Endfield VFS block {i}.");
                     }
 
-                    reader.Position += blockInfo.compressedSize;
-                    var start = blocksStream.Position;
-                    var end = start + blockInfo.uncompressedSize;
-                    unavailable.Add(new PartialVfsStream.Range(start, end, i));
-                    // Keep file offsets intact. PartialVfsStream guards reads into these ranges.
-                    blocksStream.SetLength(end);
-                    blocksStream.Position = end;
+                    var decoded = false;
+                    string failure;
+                    if (blockInfo.compressedSize > int.MaxValue || blockInfo.uncompressedSize > int.MaxValue)
+                    {
+                        reader.Position += blockInfo.compressedSize;
+                        failure = $"Endfield VFS block {i} is too large for the current decryptor.";
+                    }
+                    else
+                    {
+                        decoded = TryReadEncryptedBlock(reader, blocksStream, blockInfo, i, start, out failure);
+                    }
+
+                    if (!decoded)
+                    {
+                        Logger.ErrorSilently(failure);
+                        unavailable.Add(new PartialVfsStream.Range(start, end, i));
+                        // Keep file offsets intact. PartialVfsStream guards reads into these ranges.
+                        blocksStream.SetLength(end);
+                        blocksStream.Position = end;
+                    }
                     continue;
                 }
 
@@ -202,9 +223,84 @@ namespace AnimeStudio
             }
             if (unavailable.Count != 0)
             {
-                Logger.Warning($"{reader.FileName} has {unavailable.Count} encrypted Endfield VFS blocks with unavailable keys. Assets that use those blocks cannot be read.");
+                Logger.ErrorSilently($"{reader.FileName} has {unavailable.Count} Endfield VFS blocks that could not be decrypted. Assets that use those blocks will be skipped.");
             }
             return unavailable;
+        }
+
+        private static bool TryReadEncryptedBlock(
+            FileReader reader,
+            Stream blocksStream,
+            BundleFile.StorageBlock blockInfo,
+            int blockIndex,
+            long outputOffset,
+            out string failure)
+        {
+            failure = null;
+            var compressedSize = checked((int)blockInfo.compressedSize);
+            var uncompressedSize = checked((int)blockInfo.uncompressedSize);
+            var compressedBytes = ArrayPool<byte>.Shared.Rent(compressedSize);
+            byte[] uncompressedBytes = null;
+
+            try
+            {
+                var compressedSpan = compressedBytes.AsSpan(0, compressedSize);
+                reader.BaseStream.ReadExactly(compressedSpan);
+
+                if (!blockInfo.keyId.HasValue
+                    || !EndfieldBundleKeyStore.TryGetKey(blockInfo.keyId.Value, out var key))
+                {
+                    failure = blockInfo.keyId.HasValue
+                        ? $"Endfield VFS block {blockIndex} key 0x{blockInfo.keyId.Value:X8} is unavailable."
+                        : $"Endfield VFS block {blockIndex} has no decoded key ID.";
+                    return false;
+                }
+
+                EndfieldBundleCrypto.DecryptBlockPayload(compressedSpan, key, outputOffset);
+
+                switch ((int)(blockInfo.flags & StorageBlockFlags.CompressionTypeMask))
+                {
+                    case 0:
+                        if (compressedSize != uncompressedSize)
+                        {
+                            failure = $"Endfield VFS block {blockIndex} has inconsistent uncompressed sizes.";
+                            return false;
+                        }
+
+                        blocksStream.Write(compressedSpan);
+                        return true;
+
+                    case 5:
+                        uncompressedBytes = ArrayPool<byte>.Shared.Rent(uncompressedSize);
+                        var outputSpan = uncompressedBytes.AsSpan(0, uncompressedSize);
+                        var written = LZ4Inv.Instance.Decompress(compressedSpan, outputSpan);
+                        if (written != uncompressedSize)
+                        {
+                            failure = $"Endfield VFS block {blockIndex} decompressed to {written} bytes, expected {uncompressedSize}.";
+                            return false;
+                        }
+
+                        blocksStream.Write(outputSpan);
+                        return true;
+
+                    default:
+                        failure = $"Endfield VFS block {blockIndex} uses unsupported compression type {(int)(blockInfo.flags & StorageBlockFlags.CompressionTypeMask)}.";
+                        return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                failure = $"Failed to decrypt Endfield VFS block {blockIndex}: {ex.Message}";
+                return false;
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(compressedBytes, clearArray: true);
+                if (uncompressedBytes != null)
+                {
+                    ArrayPool<byte>.Shared.Return(uncompressedBytes, clearArray: true);
+                }
+            }
         }
 
         private void ReadFiles(Stream blocksStream, string path, List<PartialVfsStream.Range> unavailable)

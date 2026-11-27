@@ -9,6 +9,10 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<InternalsVisibleTo Include="AnimeStudio.Tests" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<PackageReference Include="K4os.Hash.xxHash" Version="1.0.8" />
 		<PackageReference Include="Kyaru.Texture2DDecoder" Version="0.17.1" />
 		<PackageReference Include="Kyaru.Texture2DDecoder.Windows" Version="0.2.0" />

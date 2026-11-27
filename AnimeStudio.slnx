@@ -27,6 +27,7 @@
   </Folder>
   <Project Path="AnimeStudio.CLI/AnimeStudio.CLI.csproj" />
   <Project Path="AnimeStudio.GUI/AnimeStudio.GUI.csproj" />
+  <Project Path="AnimeStudio.Tests/AnimeStudio.Tests.csproj" />
   <Project Path="AnimeStudio.Utility/AnimeStudio.Utility.csproj" />
   <Project Path="AnimeStudio/AnimeStudio.csproj" />
 </Solution>

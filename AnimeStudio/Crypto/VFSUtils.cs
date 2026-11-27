@@ -243,7 +243,10 @@ namespace AnimeStudio
                         throw new InvalidDataException("Truncated Endfield VFS block key ID");
                     }
 
-                    reader.ReadUInt32();
+                    var keyPart1 = reader.ReadUInt16();
+                    var keyPart2 = reader.ReadUInt16();
+                    var encodedKeyId = BitConcat((ushort)(keyPart1 ^ keyPart2 ^ 0xA121), keyPart2);
+                    blocks[^1].keyId = BitOperations.RotateRight(encodedKeyId, 18) ^ 0xF74324EE;
                 }
 
                 Logger.Verbose($"Block {i} Info: {blocks[i]}");

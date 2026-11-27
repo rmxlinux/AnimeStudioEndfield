@@ -77,6 +77,15 @@ namespace AnimeStudio
             if (FileLogging) File.Log(LoggerEvent.Info, message);
             Default.Log(LoggerEvent.Info, message);
         }
+
+        public static void InfoSilently(string message)
+        {
+            if (!Flags.HasFlag(LoggerEvent.Info) || Silent)
+                return;
+
+            if (FileLogging) File.Log(LoggerEvent.Info, message);
+            Default.LogSilently(LoggerEvent.Info, message);
+        }
         public static void Warning(string message)
         {
             if (!Flags.HasFlag(LoggerEvent.Warning) || Silent)
@@ -106,6 +115,29 @@ namespace AnimeStudio
             message = sb.ToString();
             if (FileLogging) File.Log(LoggerEvent.Error, message);
             Default.Log(LoggerEvent.Error, message);
+        }
+
+        public static void ErrorSilently(string message)
+        {
+            if (!Flags.HasFlag(LoggerEvent.Error) || Silent)
+                return;
+
+            if (FileLogging) File.Log(LoggerEvent.Error, message);
+            Default.LogSilently(LoggerEvent.Error, message);
+        }
+
+        public static void ErrorSilently(string message, Exception e)
+        {
+            if (!Flags.HasFlag(LoggerEvent.Error) || Silent)
+                return;
+
+            var sb = new StringBuilder();
+            sb.AppendLine(message);
+            sb.AppendLine(e.ToString());
+            var detail = sb.ToString();
+
+            if (FileLogging) File.Log(LoggerEvent.Error, detail);
+            Default.LogSilently(LoggerEvent.Error, detail);
         }
     }
 }
