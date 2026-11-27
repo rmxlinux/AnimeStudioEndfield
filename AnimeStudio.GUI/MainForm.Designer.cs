@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using OpenTK;
 using OpenTK.GLControl;
 
@@ -52,6 +52,7 @@ namespace AnimeStudio.GUI
             toolStripMenuItem14 = new System.Windows.Forms.ToolStripMenuItem();
             specifyUnityVersion = new System.Windows.Forms.ToolStripTextBox();
             editUnityCNKeysToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            endfieldResourceKeysMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             toolStripSeparator13 = new System.Windows.Forms.ToolStripSeparator();
             assetLoadingToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             enableResolveDependencies = new System.Windows.Forms.ToolStripMenuItem();
@@ -213,9 +214,9 @@ namespace AnimeStudio.GUI
             statusStrip1.SuspendLayout();
             contextMenuStrip1.SuspendLayout();
             SuspendLayout();
-            // 
+            //
             // menuStrip1
-            // 
+            //
             menuStrip1.BackColor = System.Drawing.SystemColors.MenuBar;
             menuStrip1.ImageScalingSize = new System.Drawing.Size(20, 20);
             menuStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] { fileToolStripMenuItem, optionsToolStripMenuItem, exportToolStripMenuItem, filterTypeToolStripMenuItem, miscToolStripMenuItem, aboutToolStripMenuItem });
@@ -298,7 +299,7 @@ namespace AnimeStudio.GUI
             // 
             // optionsToolStripMenuItem
             // 
-            optionsToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] { gameToolStripMenuItem, gameSelect, toolStripMenuItem14, editUnityCNKeysToolStripMenuItem, toolStripSeparator13, assetLoadingToolStripMenuItem, enableResolveDependencies, allowDuplicates, useBundleContainerNameToolStripMenuItem, skipContainer, toolStripSeparator12, generalToolStripMenuItem1, showExpOpt, appThemeToolStripMenuItem, toolStripSeparator1, miscToolStripMenuItem1, toolStripMenuItem21, debugToolStripMenuItem });
+            optionsToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] { gameToolStripMenuItem, gameSelect, toolStripMenuItem14, editUnityCNKeysToolStripMenuItem, endfieldResourceKeysMenuItem, toolStripSeparator13, assetLoadingToolStripMenuItem, enableResolveDependencies, allowDuplicates, useBundleContainerNameToolStripMenuItem, skipContainer, toolStripSeparator12, generalToolStripMenuItem1, showExpOpt, appThemeToolStripMenuItem, toolStripSeparator1, miscToolStripMenuItem1, toolStripMenuItem21, debugToolStripMenuItem });
             optionsToolStripMenuItem.Name = "optionsToolStripMenuItem";
             optionsToolStripMenuItem.Size = new System.Drawing.Size(118, 38);
             optionsToolStripMenuItem.Text = "Options";
@@ -336,6 +337,13 @@ namespace AnimeStudio.GUI
             editUnityCNKeysToolStripMenuItem.Size = new System.Drawing.Size(442, 44);
             editUnityCNKeysToolStripMenuItem.Text = "Edit UnityCN Keys";
             editUnityCNKeysToolStripMenuItem.Click += editUnityCNKeysToolStripMenuItem_Click;
+            // 
+            // endfieldResourceKeysMenuItem
+            // 
+            endfieldResourceKeysMenuItem.Name = "endfieldResourceKeysMenuItem";
+            endfieldResourceKeysMenuItem.Size = new System.Drawing.Size(442, 44);
+            endfieldResourceKeysMenuItem.Text = "Endfield resource key settings...";
+            endfieldResourceKeysMenuItem.Click += endfieldResourceKeysMenuItem_Click;
             // 
             // toolStripSeparator13
             // 
@@ -1726,6 +1734,7 @@ namespace AnimeStudio.GUI
         private System.Windows.Forms.ColumnHeader columnHeaderSHA256;
         private System.Windows.Forms.ToolStripMenuItem gameSelect;
         private System.Windows.Forms.ToolStripMenuItem editUnityCNKeysToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem endfieldResourceKeysMenuItem;
         private System.Windows.Forms.ToolStripMenuItem useBundleContainerNameToolStripMenuItem;
         private System.Windows.Forms.ContextMenuStrip previewContextMenuStrip;
         private System.Windows.Forms.ToolStripMenuItem copyImageToolStripMenuItem;

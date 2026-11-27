@@ -34,5 +34,11 @@ namespace AnimeStudio.GUI
                     break;
             }
         }
+
+        public void LogSilently(LoggerEvent loggerEvent, string message)
+        {
+            // Logger.File receives these messages separately. Do not surface
+            // automatic key refresh or block errors in the status bar/modal UI.
+        }
     }
 }

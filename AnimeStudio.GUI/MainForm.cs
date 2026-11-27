@@ -100,6 +100,7 @@ namespace AnimeStudio.GUI
             InitializeProgressBar();
             InitializeLogger();
             InitalizeOptions();
+            ConfigureEndfieldResourceKeyClient();
             FMODinit();
         }
 
@@ -3421,6 +3422,53 @@ namespace AnimeStudio.GUI
         {
             unityCNEdit = new UnityCNEdit();
             unityCNEdit.ShowDialog();
+        }
+
+        private void endfieldResourceKeysMenuItem_Click(object sender, EventArgs e)
+        {
+            var settings = Properties.Settings.Default;
+            var request = new EndfieldResourceKeyRequest(
+                settings.endfieldResourceAppCode,
+                settings.endfieldResourcePlatform,
+                settings.endfieldResourceGameVersion,
+                settings.endfieldResourcePackageVersion,
+                settings.endfieldResourceRandStr);
+
+            using var form = new EndfieldResourceKeySettingsForm(request);
+            if (form.ShowDialog(this) != DialogResult.OK)
+            {
+                return;
+            }
+
+            settings.endfieldResourceAppCode = form.AppCode;
+            settings.endfieldResourcePlatform = form.Platform;
+            settings.endfieldResourceGameVersion = form.GameVersion;
+            settings.endfieldResourcePackageVersion = form.PackageVersion;
+            settings.endfieldResourceRandStr = form.RandStr;
+            settings.Save();
+            ConfigureEndfieldResourceKeyClient();
+
+            if (form.RefreshRequested)
+            {
+                _ = Task.Run(EndfieldResourceKeyClient.RefreshNow);
+            }
+        }
+
+        private static void ConfigureEndfieldResourceKeyClient()
+        {
+            var settings = Properties.Settings.Default;
+            var request = new EndfieldResourceKeyRequest(
+                settings.endfieldResourceAppCode,
+                settings.endfieldResourcePlatform,
+                settings.endfieldResourceGameVersion,
+                settings.endfieldResourcePackageVersion,
+                settings.endfieldResourceRandStr);
+
+            EndfieldResourceKeyClient.Configure(request, settings.endfieldResourceKeyCache, cache =>
+            {
+                settings.endfieldResourceKeyCache = cache;
+                settings.Save();
+            });
         }
     }
 }

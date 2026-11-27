@@ -250,7 +250,7 @@ namespace AnimeStudio.GUI
             {
                 if (file.HasUnavailableData)
                 {
-                    Logger.Warning($"Skipping extraction of {file.path} because it contains encrypted Endfield VFS blocks with unavailable keys.");
+                    Logger.ErrorSilently($"Skipping extraction of {file.path} because it contains Endfield VFS data that could not be decrypted.");
                     file.stream.Dispose();
                     continue;
                 }
