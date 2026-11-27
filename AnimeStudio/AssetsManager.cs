@@ -872,6 +872,7 @@ namespace AnimeStudio
 
             var progressCount = assetsFileList.Sum(x => x.m_Objects.Count);
             int i = 0;
+            var skippedObjects = new List<SkippedObject>();
             Progress.Reset();
             foreach (var assetsFile in assetsFileList)
             {
@@ -880,6 +881,7 @@ namespace AnimeStudio
                     if (tokenSource.IsCancellationRequested)
                     {
                         Logger.Info("Reading assets has been cancelled !!");
+                        ReportSkippedObjects(skippedObjects);
                         return;
                     }
                     var objectReader = new ObjectReader(assetsFile.reader, assetsFile, objectInfo, Game);
@@ -929,7 +931,7 @@ namespace AnimeStudio
                     }
                     catch (UnavailableVfsDataException e)
                     {
-                        Logger.ErrorSilently($"Skipping {objectReader.type} PathID {objectInfo.m_PathID} in {assetsFile.fileName} because VFS block {e.BlockIndex} contains unavailable data.");
+                        skippedObjects.Add(new SkippedObject(assetsFile, objectInfo.m_PathID, objectReader.type, e.BlockIndex));
                     }
                     catch (Exception e)
                     {
@@ -946,6 +948,103 @@ namespace AnimeStudio
                     Progress.Report(++i, progressCount);
                 }
             }
+
+            ReportSkippedObjects(skippedObjects);
+        }
+
+        private readonly record struct SkippedObject(SerializedFile File, long PathId, ClassIDType Type, int BlockIndex);
+
+        /// <summary>
+        /// Reports objects that were skipped because their data lives in an unreadable VFS block.
+        /// Names and container paths are resolved here, after every object has been parsed,
+        /// because the AssetBundle container table may be loaded after the skipped object.
+        /// </summary>
+        private static void ReportSkippedObjects(List<SkippedObject> skippedObjects)
+        {
+            if (skippedObjects.Count == 0)
+            {
+                return;
+            }
+
+            var containerMaps = new Dictionary<SerializedFile, Dictionary<long, string>>();
+            foreach (var skipped in skippedObjects)
+            {
+                if (!containerMaps.TryGetValue(skipped.File, out var containerMap))
+                {
+                    containerMap = BuildContainerMap(skipped.File);
+                    containerMaps.Add(skipped.File, containerMap);
+                }
+
+                string path = null;
+                string name = null;
+                if (containerMap.TryGetValue(skipped.PathId, out var containerPath))
+                {
+                    path = containerPath;
+                    name = Path.GetFileNameWithoutExtension(containerPath);
+                }
+                else if (skipped.Type == ClassIDType.Texture2D)
+                {
+                    // The sprite that displays this texture may still carry the container path
+                    // (or at least a readable name) even when the texture object itself cannot be read.
+                    foreach (var obj in skipped.File.Objects)
+                    {
+                        if (obj is Sprite sprite
+                            && sprite.m_RD?.texture is { m_FileID: 0 } texture
+                            && texture.m_PathID == skipped.PathId)
+                        {
+                            if (containerMap.TryGetValue(sprite.m_PathID, out var spritePath))
+                            {
+                                path = spritePath;
+                                name = Path.GetFileNameWithoutExtension(spritePath);
+                            }
+                            else if (!string.IsNullOrEmpty(sprite.m_Name))
+                            {
+                                name = sprite.m_Name;
+                            }
+
+                            break;
+                        }
+                    }
+                }
+
+                var description = skipped.Type.ToString();
+                if (!string.IsNullOrEmpty(name))
+                {
+                    description += $" '{name}'";
+                }
+
+                if (!string.IsNullOrEmpty(path))
+                {
+                    description += $" path '{path}'";
+                }
+
+                Logger.ErrorSilently($"Skipping {description} PathID {skipped.PathId} in {skipped.File.fileName} because VFS block {skipped.BlockIndex} contains unavailable data.");
+            }
+        }
+
+        private static Dictionary<long, string> BuildContainerMap(SerializedFile assetsFile)
+        {
+            var containerMap = new Dictionary<long, string>();
+            foreach (var obj in assetsFile.Objects)
+            {
+                if (obj is not AssetBundle assetBundle || assetBundle.m_Container == null)
+                {
+                    continue;
+                }
+
+                foreach (var entry in assetBundle.m_Container)
+                {
+                    var asset = entry.Value?.asset;
+                    if (asset == null || asset.m_FileID != 0 || containerMap.ContainsKey(asset.m_PathID))
+                    {
+                        continue;
+                    }
+
+                    containerMap.Add(asset.m_PathID, entry.Key);
+                }
+            }
+
+            return containerMap;
         }
 
         private void ProcessAssets()
